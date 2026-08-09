@@ -54,6 +54,12 @@ public:
 
     bool isOpen() const { return open_; }
 
+    // Best-effort discovery of this machine's LAN IP address (the one
+    // other devices on the same network would use to reach it). Used to
+    // show the host their own IP so they don't have to go hunting for it
+    // in ipconfig/ifconfig. Falls back to "127.0.0.1" if it can't tell.
+    static std::string getLocalIPAddress();
+
 private:
     socket_t sock_{};
     bool     open_ = false;

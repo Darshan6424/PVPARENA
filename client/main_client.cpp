@@ -11,14 +11,17 @@
 
 #include "GameClient.h"
 #include "Renderer.h"
+#include "AudioManager.h"
 #include "../server/GameServer.h"
 #include "../common/Protocol.h"
+#include "../common/PathUtils.h"
 #include <SFML/Graphics.hpp>
 #include <optional>
 #include <atomic>
 #include <thread>
 #include <memory>
 #include <cctype>
+#include <array>
 
 using namespace net;
 
@@ -66,12 +69,19 @@ int main() {
     window.setFramerateLimit(60);
 
     Renderer renderer;
+    std::string assetsDir = paths::executableDir() + "assets/";
+    renderer.loadTextures(assetsDir);
+
+    AudioManager audio;
+    audio.loadAll(assetsDir);
+    audio.playMusic(MusicTrack::Title);
 
     GameClient client;
     AppState appState = AppState::Title;
 
     std::string ipInput = "127.0.0.1";
     std::string statusMessage;
+    std::string hostIpDisplay;
 
     // Embedded server support ("Create Server" button).
     std::unique_ptr<GameServer> embeddedServer;
@@ -97,6 +107,17 @@ int main() {
 
     bool prevAttackKey = false, prevParryKey = false, prevDodgeKey = false;
 
+    std::array<PlayerSnapshot, MAX_PLAYERS> prevSnapshots{};
+    bool havePrevSnapshots = false;
+    std::array<float, MAX_PLAYERS> stateTimer{ 0.f, 0.f };
+    bool matchEndSoundPlayed = false;
+
+    auto resetMatchTracking = [&]() {
+        havePrevSnapshots = false;
+        stateTimer = { 0.f, 0.f };
+        matchEndSoundPlayed = false;
+    };
+
     sf::Clock clock;
     while (window.isOpen()) {
         float dt = clock.restart().asSeconds();
@@ -111,18 +132,22 @@ int main() {
                 if (const auto* mb = event->getIf<sf::Event::MouseButtonPressed>()) {
                     if (mb->button == sf::Mouse::Button::Left) {
                         if (buttonContains(createBtn, mousePos)) {
+                            audio.playUiClick();
                             embeddedServer = std::make_unique<GameServer>();
                             if (embeddedServer->start(DEFAULT_SERVER_PORT)) {
                                 serverRunning = true;
                                 serverThread = std::make_unique<std::thread>(
                                     [&]() { embeddedServer->run(serverRunning); });
+                                hostIpDisplay = UdpSocket::getLocalIPAddress();
                                 client.beginConnect("127.0.0.1", DEFAULT_SERVER_PORT);
+                                resetMatchTracking();
                                 appState = AppState::Connecting;
                                 statusMessage = "Starting server and connecting...";
                             } else {
                                 statusMessage = "Failed to start server (port in use?)";
                             }
                         } else if (buttonContains(joinBtn, mousePos)) {
+                            audio.playUiClick();
                             appState = AppState::EnteringIp;
                         }
                     }
@@ -133,6 +158,7 @@ int main() {
                         if (!ipInput.empty()) ipInput.pop_back();
                     } else if (te->unicode == 13) { // enter
                         client.beginConnect(ipInput, DEFAULT_SERVER_PORT);
+                        resetMatchTracking();
                         appState = AppState::Connecting;
                         statusMessage = "Connecting to " + ipInput + " ...";
                     } else if (te->unicode < 128) {
@@ -145,10 +171,13 @@ int main() {
                 if (const auto* mb = event->getIf<sf::Event::MouseButtonPressed>()) {
                     if (mb->button == sf::Mouse::Button::Left) {
                         if (buttonContains(connectBtn, mousePos)) {
+                            audio.playUiClick();
                             client.beginConnect(ipInput, DEFAULT_SERVER_PORT);
+                            resetMatchTracking();
                             appState = AppState::Connecting;
                             statusMessage = "Connecting to " + ipInput + " ...";
                         } else if (buttonContains(backBtn, mousePos)) {
+                            audio.playUiClick();
                             appState = AppState::Title;
                         }
                     }
@@ -212,10 +241,72 @@ int main() {
                 client.sendInput(moveX, moveY, attackPressed, blockHeld, parryPressed, dodgePressed);
             }
 
+            if (client.hasReceivedState()) {
+                const StateUpdatePacket& state = client.latestState();
+
+                for (int i = 0; i < MAX_PLAYERS; ++i) {
+                    const PlayerSnapshot& snap = state.players[i];
+
+                    if (havePrevSnapshots) {
+                        const PlayerSnapshot& prev = prevSnapshots[i];
+
+                        if (prev.state != snap.state) {
+                            stateTimer[i] = 0.f;
+                        } else {
+                            stateTimer[i] += dt;
+                        }
+
+                        // Swing sound the instant an attack starts.
+                        if (snap.state == ActionState::Attacking &&
+                            prev.state != ActionState::Attacking) {
+                            audio.playAttackSwing();
+                        }
+
+                        // A player who was Attacking and got Staggered while
+                        // their opponent was Parrying just got punished for
+                        // swinging into a parry.
+                        if (snap.state == ActionState::Staggered &&
+                            prev.state == ActionState::Attacking &&
+                            prevSnapshots[1 - i].state == ActionState::Parrying) {
+                            audio.playParrySuccess();
+                        }
+
+                        // Health dropped since the last snapshot - something
+                        // landed. Distinguish a blocked (reduced-damage) hit
+                        // from a clean one for which sound to play.
+                        if (snap.health < prev.health - 0.01f) {
+                            if (snap.state == ActionState::Blocking ||
+                                prev.state == ActionState::Blocking) {
+                                audio.playBlockHit();
+                            } else {
+                                audio.playHitLand();
+                            }
+                            renderer.spawnHitEffect({ snap.x, snap.y });
+                        }
+                    } else {
+                        stateTimer[i] = 0.f;
+                    }
+                }
+
+                for (int i = 0; i < MAX_PLAYERS; ++i) {
+                    prevSnapshots[i] = state.players[i];
+                }
+                havePrevSnapshots = true;
+
+                if (state.winnerId != 255 && !matchEndSoundPlayed) {
+                    audio.playMatchEnd();
+                    matchEndSoundPlayed = true;
+                }
+            }
+
             if (client.hasReceivedState() && client.latestState().winnerId != 255) {
                 appState = AppState::GameOver;
             }
         }
+
+        // ---- Music follows which screen we're on -----------------------
+        bool inMatch = (appState == AppState::Playing || appState == AppState::GameOver);
+        audio.playMusic(inMatch ? MusicTrack::Battle : MusicTrack::Title);
 
         // ---------------------------------------------------------------
         // Draw
@@ -251,13 +342,22 @@ int main() {
                 const StateUpdatePacket& state = client.latestState();
                 for (int i = 0; i < MAX_PLAYERS; ++i) {
                     renderer.drawPlayer(window, state.players[i], static_cast<uint8_t>(i),
-                                         client.localPlayerId());
+                                         client.localPlayerId(), stateTimer[i]);
                 }
+                renderer.updateAndDrawHitEffects(window, dt);
                 renderer.drawHud(window, state, client.localPlayerId());
             } else {
                 renderer.drawCenteredText(window, "Waiting for opponent...",
                                            ARENA_WIDTH / 2.f, ARENA_HEIGHT / 2.f, 20,
                                            sf::Color::White);
+                if (embeddedServer && !hostIpDisplay.empty()) {
+                    renderer.drawCenteredText(window, "Your IP: " + hostIpDisplay,
+                                               ARENA_WIDTH / 2.f, ARENA_HEIGHT / 2.f + 34.f, 16,
+                                               sf::Color(150, 220, 255));
+                    renderer.drawCenteredText(window, "(give this to your opponent to Join)",
+                                               ARENA_WIDTH / 2.f, ARENA_HEIGHT / 2.f + 58.f, 13,
+                                               sf::Color(150, 150, 150));
+                }
             }
         }
 

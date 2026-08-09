@@ -40,6 +40,55 @@ You can either:
   someone else is running (their own "Create Server", or a
   standalone `server` process - see below).
 
+## Assets
+
+`assets/` (copied next to the built exe automatically by CMake) has a
+trimmed-down set pulled from your old Clash Royale project's asset
+pack - not everything in it, just what fit this game:
+
+- `sprites/characterSheet.png` / `skeletonSheet.png` - Universal LPC
+  Spritesheet layout (64x64 tiles, 13 cols x 21 rows). Player 1 renders
+  as the character sheet, player 2 as the skeleton, so the two fighters
+  read as distinct at a glance without needing color-coding.
+  Walk/slash/thrust/spellcast/hurt rows are mapped to
+  Idle/Moving/Attacking/Parrying/Blocking/Staggered/Dead respectively -
+  see the big comment at the top of `client/Renderer.h` for the exact
+  row layout if you want to retune it.
+- `sprites/bloodParticle.png` - small hit-impact splash, spawned
+  client-side whenever it observes a player's health drop between two
+  server updates (downscaled from the original 2048x2048 source).
+- `audio/title_music.ogg`, `battle_music.ogg` - menu and in-match
+  music, looped (re-encoded from the original mp3s to Ogg Vorbis,
+  ~18MB -> ~6.5MB combined, same audible quality at game volume).
+- `audio/attack_swing.ogg`, `parry_success.ogg`, `hit_land.ogg`,
+  `block_hit.ogg`, `ui_click.ogg`, `match_end.ogg` - one-shot SFX,
+  triggered by the client watching for the relevant change between
+  consecutive `StateUpdate` packets (an attack starting, health
+  dropping, a Staggered player who was mid-swing against an opponent
+  who was Parrying, a button press, `winnerId` first appearing). None
+  of this is the client deciding gameplay - it's reacting to what the
+  server already reported.
+
+**Skipped on purpose:** the old title screen graphic (you called it
+out), the projectile/spell sprites (no ranged attacks here), the
+tile/map assets (this game doesn't use tilemaps), and the
+inventory/UI chrome (health/stamina bars are still simple drawn rects
+for now). If you want any of those swapped in - or want a real
+block/parry pose instead of the reused Thrust/Spellcast stances I
+improvised from the sheet (there wasn't a dedicated guard pose in the
+pack) - point me at the file or a replacement pack and I'll wire it
+up.
+
+**A note on the animation and audio API calls in this pass:** SFML
+3's exact method names for texture/sound-buffer loading
+(`loadFromFile` vs `openFromFile`) and music looping
+(`setLooping` vs `setLoop`) weren't something I could verify against
+a real SFML 3 install here - I went with my best-confidence read of
+the 3.0 API and kept it consistent with what's already confirmed
+working (`Font::openFromFile`). If the build throws errors in
+`Renderer.cpp` or `AudioManager.cpp` about a missing member function,
+send the log and it's a one-line rename to fix.
+
 ## Building
 
 ### Windows (VS Code + MSVC + vcpkg + CMake Tools)
@@ -81,6 +130,32 @@ Binaries land in `build/`: `client`, `server`, `headless_test`.
 clicks **Create Server** (make sure UDP port `9422` is open/forwarded
 on their network), then tells the other player their IP. The other
 player runs `client`, clicks **Join**, and types that IP.
+
+The host's own screen now shows its LAN IP directly on the "Waiting
+for opponent..." screen, so there's no need to go digging through
+`ipconfig`.
+
+If Join just hangs on "Connecting..." until it times out, it's almost
+always one of these:
+
+- **Windows Firewall.** The first time `client.exe` runs and starts a
+  server, Windows should prompt "Windows Defender Firewall has
+  blocked some features of this app" - click **Allow access** (tick
+  both Private and Public networks). If that prompt was dismissed or
+  denied earlier, go to *Windows Security → Firewall & network
+  protection → Allow an app through firewall* and add `client.exe`
+  manually, with both boxes checked.
+- **Wrong kind of IP.** For two machines on the **same Wi-Fi/LAN**,
+  use the LAN IP shown on the host's screen (`192.168.x.x` or
+  `10.x.x.x`). For machines on **different networks** (over the
+  internet), the LAN IP won't be reachable at all - the host needs
+  their **public IP** (search "what's my ip") plus a port-forwarding
+  rule on their router forwarding UDP `9422` to their PC's LAN IP.
+  There's no relay/NAT-punchthrough in this project, so internet play
+  genuinely requires that forwarding step.
+- **Different networks with CGNAT** (common on mobile hotspots and
+  some ISPs) can make port forwarding impossible regardless of router
+  settings - if forwarding doesn't work, that's likely why.
 
 **Dedicated server (no player hosting from their own client):** run
 `server.exe` (or `./server`) standalone on any reachable machine, then

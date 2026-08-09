@@ -130,3 +130,59 @@ int UdpSocket::receive(void* buffer, size_t bufferSize, Endpoint& from) {
 
     return received;
 }
+
+std::string UdpSocket::getLocalIPAddress() {
+#ifdef _WIN32
+    // A UdpSocket has already been constructed by this point in every
+    // real usage path (GameClient holds one as a member), which already
+    // called WSAStartup - but guard anyway in case this is ever called
+    // standalone.
+    WSADATA wsaData;
+    bool didInit = (WSAStartup(MAKEWORD(2, 2), &wsaData) == 0);
+#endif
+
+    socket_t probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#ifdef _WIN32
+    bool probeOpen = (probe != INVALID_SOCKET);
+#else
+    bool probeOpen = (probe >= 0);
+#endif
+    std::string result = "127.0.0.1";
+
+    if (probeOpen) {
+        sockaddr_in remote{};
+        remote.sin_family = AF_INET;
+        remote.sin_port = htons(80);
+        inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
+
+        // UDP connect() doesn't send anything on the wire - it just
+        // picks which local interface/address the OS would route
+        // through, which is exactly what we want to read back.
+        if (::connect(probe, reinterpret_cast<sockaddr*>(&remote), sizeof(remote)) == 0) {
+            sockaddr_in local{};
+#ifdef _WIN32
+            int localLen = sizeof(local);
+#else
+            socklen_t localLen = sizeof(local);
+#endif
+            if (getsockname(probe, reinterpret_cast<sockaddr*>(&local), &localLen) == 0) {
+                char buf[INET_ADDRSTRLEN] = {};
+                if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf))) {
+                    result = buf;
+                }
+            }
+        }
+
+#ifdef _WIN32
+        closesocket(probe);
+#else
+        ::close(probe);
+#endif
+    }
+
+#ifdef _WIN32
+    if (didInit) WSACleanup();
+#endif
+
+    return result;
+}
