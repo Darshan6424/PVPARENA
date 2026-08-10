@@ -80,4 +80,10 @@ private:
     bool bloodLoaded_ = false;
 
     std::vector<HitEffect> hitEffects_;
+
+    // Per-player movement tracking, purely for picking which walk-cycle
+    // row (up/down/left/right) looks right - cosmetic only, derived
+    // from consecutive server-reported positions, never decided here.
+    std::array<sf::Vector2f, 2> prevPos_{};
+    std::array<bool, 2> havePrevPos_{ false, false };
 };

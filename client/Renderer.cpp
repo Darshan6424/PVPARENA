@@ -139,10 +139,23 @@ void Renderer::drawPlayer(sf::RenderWindow& window, const PlayerSnapshot& snap,
     if (spritesLoaded_) {
         sf::Texture& tex = (playerIndex == 0) ? characterTexture_ : skeletonTexture_;
 
+        // Figure out which way this player actually moved since the
+        // last frame we drew them - used only for picking a walk-cycle
+        // row that matches their real direction (the sheet has real
+        // up/down art, not just left/right).
+        sf::Vector2f pos{ snap.x, snap.y };
+        sf::Vector2f moveDelta{ 0.f, 0.f };
+        if (playerIndex < 2) {
+            if (havePrevPos_[playerIndex]) {
+                moveDelta = pos - prevPos_[playerIndex];
+            }
+            prevPos_[playerIndex] = pos;
+            havePrevPos_[playerIndex] = true;
+        }
+
         int row = ROW_WALK;
         int frameCount = FRAMES_WALK;
         int frameIdx = 0;
-        bool loopAnim = true;
         float alpha = 255.f;
 
         switch (snap.state) {
@@ -150,11 +163,20 @@ void Renderer::drawPlayer(sf::RenderWindow& window, const PlayerSnapshot& snap,
                 row = facingRow(ROW_WALK, snap.facing);
                 frameIdx = 0;
                 break;
-            case ActionState::Moving:
-                row = facingRow(ROW_WALK, snap.facing);
+            case ActionState::Moving: {
                 frameCount = FRAMES_WALK;
+                float absX = std::fabs(moveDelta.x);
+                float absY = std::fabs(moveDelta.y);
+                if (absY > absX && absY > 0.0001f) {
+                    row = ROW_WALK + (moveDelta.y < 0.f ? 0 : 2); // up : down
+                } else if (absX > 0.0001f) {
+                    row = ROW_WALK + (moveDelta.x < 0.f ? 1 : 3); // left : right
+                } else {
+                    row = facingRow(ROW_WALK, snap.facing);
+                }
                 frameIdx = frameIndexForTime(stateTime, WALK_FRAME_TIME, frameCount, true);
                 break;
+            }
             case ActionState::Attacking: {
                 row = facingRow(ROW_SLASH, snap.facing);
                 frameCount = FRAMES_SLASH;
@@ -199,7 +221,12 @@ void Renderer::drawPlayer(sf::RenderWindow& window, const PlayerSnapshot& snap,
         sf::Sprite sprite(tex);
         sprite.setTextureRect(frameRect(row, frameIdx));
         sprite.setOrigin({ TILE / 2.f, TILE / 2.f });
-        sprite.setPosition({ snap.x, snap.y });
+
+        float bob = 0.f;
+        if (snap.state == ActionState::Idle) {
+            bob = std::sin(stateTime * 2.2f) * 1.6f; // gentle breathing sway
+        }
+        sprite.setPosition({ snap.x, snap.y + bob });
         sprite.setScale({ SPRITE_SCALE, SPRITE_SCALE });
         sprite.setColor(sf::Color(255, 255, 255, static_cast<std::uint8_t>(alpha)));
         window.draw(sprite);
@@ -313,7 +340,12 @@ void Renderer::drawHud(sf::RenderWindow& window, const StateUpdatePacket& state,
         window.draw(stFill);
 
         if (fontLoaded_) {
-            std::string label = (i == localPlayerId) ? "YOU" : "OPPONENT";
+            std::string label;
+            if (localPlayerId == 255) {
+                label = (i == 0) ? "P1" : "P2";
+            } else {
+                label = (i == localPlayerId) ? "YOU" : "OPPONENT";
+            }
             sf::Text text(font_, label, 14);
             text.setPosition({ x, y - 18.f });
             text.setFillColor(sf::Color::White);
@@ -322,7 +354,12 @@ void Renderer::drawHud(sf::RenderWindow& window, const StateUpdatePacket& state,
     }
 
     if (state.winnerId != 255 && fontLoaded_) {
-        std::string msg = (state.winnerId == localPlayerId) ? "YOU WIN" : "YOU LOSE";
+        std::string msg;
+        if (localPlayerId == 255) {
+            msg = (state.winnerId == 0) ? "PLAYER 1 WINS" : "PLAYER 2 WINS";
+        } else {
+            msg = (state.winnerId == localPlayerId) ? "YOU WIN" : "YOU LOSE";
+        }
         drawCenteredText(window, msg, ARENA_WIDTH / 2.f, ARENA_HEIGHT / 2.f - 20.f, 40,
                           sf::Color::Yellow);
         drawCenteredText(window, "Press ESC to return to title", ARENA_WIDTH / 2.f,

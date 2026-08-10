@@ -1,8 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
+cmake_policy(SET CMP0091 NEW)
 project(PvPArena LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Static CRT to match vcpkg's x64-windows-static triplet (set in
+# .vscode/settings.json via VCPKG_TARGET_TRIPLET). This is what makes
+# the built .exe runnable on a machine with no vcpkg/SFML/VC++
+# redistributable installed at all - everything gets linked directly
+# into the binary instead of pulled from DLLs at runtime.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 # --- SFML ------------------------------------------------------------
 # On Windows with vcpkg: configure with

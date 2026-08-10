@@ -15,7 +15,7 @@ constexpr int   MAX_PLAYERS = 2;
 constexpr float ARENA_WIDTH  = 900.f;
 constexpr float ARENA_HEIGHT = 500.f;
 
-constexpr float TICK_RATE = 30.f;              // server simulation rate
+constexpr float TICK_RATE = 60.f;              // server simulation rate
 constexpr float TICK_DT   = 1.f / TICK_RATE;
 
 constexpr uint16_t DEFAULT_SERVER_PORT = 9422;
@@ -28,7 +28,7 @@ constexpr float PLAYER_RADIUS   = 22.f;
 constexpr float MOVE_SPEED      = 190.f;   // px/s while walking
 
 constexpr float ATTACK_RANGE     = 70.f;   // center-to-center distance that lands a hit
-constexpr float ATTACK_WINDUP    = 0.12f;  // seconds before the hit becomes active
+constexpr float ATTACK_WINDUP    = 0.09f;  // seconds before the hit becomes active
 constexpr float ATTACK_ACTIVE    = 0.08f;  // seconds the hit can actually land
 constexpr float ATTACK_RECOVERY  = 0.28f;  // seconds of recovery after the swing
 constexpr float ATTACK_DAMAGE    = 14.f;
