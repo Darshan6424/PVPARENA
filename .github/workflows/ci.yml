@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to the builtin-baseline in vcpkg.json so CI resolves the same
+  # SFML version the manifest asks for.
+  VCPKG_COMMIT: ea1a7396b05637a53bf23c078647ecc0edee4b80
+
+jobs:
+  # The fast gate. No SFML, no display, so it runs in seconds and catches
+  # every rule and networking regression.
+  tests:
+    name: Tests (headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_CLIENT=OFF
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # Server binary with nothing linked dynamically, the thing that gets deployed.
+  server-static:
+    name: Static server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CLIENT=OFF -DSTATIC_SERVER=ON
+          cmake --build build -j"$(nproc)"
+          strip build/server
+
+      - name: Verify it really is static
+        run: |
+          file build/server
+          if ldd build/server 2>&1 | grep -qv "not a dynamic executable"; then
+            echo "::error::server is not statically linked"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-linux-x86_64
+          path: build/server
+          if-no-files-found: error
+
+  client:
+    name: Client (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            triplet: x64-linux
+          - name: Windows
+            os: windows-latest
+            triplet: x64-windows-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SFML's Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libudev-dev libgl1-mesa-dev libfreetype-dev libopenal-dev \
+            libvorbis-dev libflac-dev autoconf automake libtool pkg-config
+
+      - name: Check out vcpkg at the pinned commit
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+          git -C "${{ github.workspace }}/vcpkg" checkout "$VCPKG_COMMIT"
+        shell: bash
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat"
+          else
+            "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
+          fi
+
+      # Building SFML from source takes many minutes. Cache the built packages
+      # so only the first run on a given manifest pays for it.
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Configure
+        shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+        run: |
+          mkdir -p "${{ github.workspace }}/vcpkg-cache"
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Build
+        shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Stage a runnable folder
+        shell: bash
+        run: cmake --install build --config Release --prefix dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pvparena-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile runs ctest during the build, so this also proves the
+      # server builds and passes in a clean environment.
+      - name: Build image
+        run: docker build -t pvparena-server:ci .
+
+      - name: Smoke test the image
+        run: |
+          docker run -d --name ci-server -p 9422:9422/udp pvparena-server:ci
+          sleep 3
+          docker logs ci-server
+          docker logs ci-server 2>&1 | grep -q "listening on UDP port 9422" \
+            || { echo "::error::server did not start"; exit 1; }
+          docker rm -f ci-server

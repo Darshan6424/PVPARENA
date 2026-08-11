@@ -1,6 +1,7 @@
 # Build output
 build/
 out/
+dist/
 [Dd]ebug/
 [Rr]elease/
 x64/
@@ -55,3 +56,7 @@ vcpkg_installed/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Locally built test binaries
+pvparena-server
+run-*-test

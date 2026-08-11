@@ -85,6 +85,19 @@ bool Assets::loadAll() {
 
     if (!loadFont()) missing_.push_back(kBundledFont);
 
+    // One line saying exactly what made it in. When something is silently not
+    // drawing or not playing, this is the first thing to look at.
+    auto count = [](const auto& flags) {
+        int n = 0;
+        for (bool ok : flags) if (ok) ++n;
+        return n;
+    };
+    std::fprintf(stderr, "Assets: %d/%zu textures, %d/%zu sounds, %d/%zu music, font=%s\n",
+                 count(texOk_), kTexCount,
+                 count(sfxOk_), kSfxCount,
+                 count(trackOk_), kTrackCount,
+                 fontOk_ ? "yes" : "NO");
+
     if (!missing_.empty()) {
         std::fprintf(stderr, "Assets: %zu file(s) missing under %s\n",
                      missing_.size(), root_.c_str());

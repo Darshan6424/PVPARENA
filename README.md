@@ -221,6 +221,80 @@ program.
 
 ---
 
+## Automated builds and releases
+
+GitHub Actions does the work. The workflows live in `.github/workflows`.
+
+### On every push and pull request (`ci.yml`)
+
+| Job | What it does |
+|---|---|
+| **Tests** | Builds with `-DBUILD_CLIENT=OFF` and runs all four test programs. No SFML, so it finishes in seconds. This is the gate. |
+| **Static server** | Builds the deployable server and *checks* it is really static. The build fails if it is not. |
+| **Client (Linux)** | Builds the full client with SFML 3 from vcpkg. |
+| **Client (Windows)** | Same, with the `x64-windows-static` triplet. |
+| **Docker image** | Builds the image and starts it, then checks the log says it is listening. |
+
+Building SFML from source is slow, so the built packages are cached. Only the
+first run pays for it.
+
+### On a version tag (`release.yml`)
+
+Push a tag and the release builds itself:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The tests run first. Nothing is published if they fail. Then it builds and
+attaches:
+
+- `pvparena-windows-x64.zip` - Windows client and server plus `assets`
+- `pvparena-linux-x86_64.tar.gz` - Linux client and server plus `assets`
+- `pvparena-server-linux-x86_64.tar.gz` - just the dedicated server, static
+- `SHA256SUMS.txt` - checksums for all of the above
+
+It also pushes the container image to GitHub's registry, tagged with the
+version and with `latest`:
+
+```bash
+docker run -d --network host --restart unless-stopped ghcr.io/<owner>/<repo>/server:latest
+```
+
+You can also start a release by hand from the Actions tab, which asks for the
+tag name.
+
+### Security scanning (`codeql.yml`)
+
+CodeQL scans the C++ on every push, every pull request, and once a week. The
+weekly run matters because the rule set changes even when the code does not.
+
+### Dependency updates (`.github/dependabot.yml`)
+
+Dependabot opens weekly pull requests for GitHub Actions versions (grouped into
+one PR) and for the Debian base image in the `Dockerfile`.
+
+Dependabot has no vcpkg support, so SFML is **not** updated automatically. It
+is pinned by `builtin-baseline` in `vcpkg.json`, and `VCPKG_COMMIT` in the
+workflows points at the same commit. To move to a newer SFML, change both
+together so CI and your machine stay in agreement.
+
+### Building everything locally
+
+```bash
+./scripts/build-all.sh
+```
+
+That builds the static server, runs the tests, builds the client if SFML 3 is
+installed, builds the Docker image if Docker is installed, and writes
+everything to `dist/` with checksums.
+
+It does **not** build the Windows executable. Cross-compiling that from Linux
+would need a second SFML toolchain, so Windows builds come from CI.
+
+---
+
 ## Running the server
 
 You have three options. Docker is the easiest for a real server.

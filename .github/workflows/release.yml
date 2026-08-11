@@ -1,0 +1,228 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and release (e.g. v1.0.0)"
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VCPKG_COMMIT: ea1a7396b05637a53bf23c078647ecc0edee4b80
+
+jobs:
+  # Nothing gets released if the rules or the networking are broken.
+  gate:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_CLIENT=OFF
+      - run: cmake --build build -j"$(nproc)"
+      - run: ctest --test-dir build --output-on-failure
+
+  server:
+    name: Static Linux server
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CLIENT=OFF -DSTATIC_SERVER=ON
+          cmake --build build -j"$(nproc)"
+          strip build/server
+
+      - name: Package
+        run: |
+          mkdir -p out
+          cp build/server out/pvparena-server-linux-x86_64
+          cp deploy/pvparena-server.service deploy/README.md out/ 2>/dev/null || true
+          tar -C out -czf pvparena-server-linux-x86_64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-server-linux
+          path: pvparena-server-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  client:
+    name: Client (${{ matrix.name }})
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            triplet: x64-linux
+          - name: windows-x64
+            os: windows-latest
+            triplet: x64-windows-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SFML's Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libudev-dev libgl1-mesa-dev libfreetype-dev libopenal-dev \
+            libvorbis-dev libflac-dev autoconf automake libtool pkg-config
+
+      - name: Check out vcpkg at the pinned commit
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+          git -C "${{ github.workspace }}/vcpkg" checkout "$VCPKG_COMMIT"
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat"
+          else
+            "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
+          fi
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Build
+        shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+        run: |
+          mkdir -p "${{ github.workspace }}/vcpkg-cache"
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          cmake --build build --config Release --parallel
+          ctest --test-dir build --build-config Release --output-on-failure
+          cmake --install build --config Release --prefix dist
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp README.md dist/ || true
+          tar -C dist -czf pvparena-${{ matrix.name }}.tar.gz .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item README.md dist/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path dist/* -DestinationPath pvparena-${{ matrix.name }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-${{ matrix.name }}
+          path: |
+            pvparena-${{ matrix.name }}.tar.gz
+            pvparena-${{ matrix.name }}.zip
+          if-no-files-found: error
+
+  image:
+    name: Publish container image
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [ -n "$TAG" ] || TAG="${GITHUB_REF_NAME}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}/server" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          IMAGE="${{ steps.meta.outputs.image }}"
+          docker build -t "$IMAGE:${{ steps.meta.outputs.version }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ steps.meta.outputs.version }}"
+          docker push "$IMAGE:latest"
+
+  publish:
+    name: Create the release
+    needs: [server, client, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [ -n "$TAG" ] || TAG="${GITHUB_REF_NAME}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}/server"
+
+          cat > notes.md <<EOF
+          ## Downloads
+
+          | File | What it is |
+          |---|---|
+          | \`pvparena-windows-x64.zip\` | Windows client and server, plus \`assets\`. No install needed. |
+          | \`pvparena-linux-x86_64.tar.gz\` | Linux client and server, plus \`assets\`. |
+          | \`pvparena-server-linux-x86_64.tar.gz\` | Dedicated server on its own, statically linked, no dependencies. |
+
+          Keep the \`assets\` folder next to the client. The client reads its
+          images, sounds and font from there while it runs.
+
+          ## Container
+
+          \`\`\`bash
+          docker run -d --network host --restart unless-stopped $IMAGE:${TAG#v}
+          \`\`\`
+
+          Open UDP port 9422 on your firewall. It is UDP, not TCP.
+
+          ## Verifying a download
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS.txt
+          \`\`\`
+          EOF
+
+          gh release create "$TAG" artifacts/* \
+            --title "PvP Arena $TAG" \
+            --notes-file notes.md \
+            --generate-notes

@@ -1,0 +1,34 @@
+version: 2
+
+updates:
+  # Action versions used by the workflows in .github/workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: ci
+    groups:
+      # One PR for all of them rather than five separate ones.
+      actions:
+        patterns: ["*"]
+
+  # The debian base image the server is built in.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: build
+
+# Note: Dependabot has no vcpkg support, so SFML is not updated here. It is
+# pinned by "builtin-baseline" in vcpkg.json, and VCPKG_COMMIT in the workflows
+# is pinned to the same commit. To move to a newer SFML, change both together.
