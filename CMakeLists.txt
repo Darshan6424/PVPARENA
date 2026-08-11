@@ -37,7 +37,17 @@ option(BUILD_CLIENT "Build the SFML client (needs SFML 3)" ON)
 if(BUILD_CLIENT)
     # SFML 3.x. The 2.x API differs enough (events, sf::Text and sf::FloatRect
     # constructors, scoped enums, openFromFile) that it will not compile.
-    find_package(SFML 3 COMPONENTS Graphics Window System Audio CONFIG REQUIRED)
+    #
+    # SFML can be installed as shared libraries, static ones, or both. When
+    # only the static ones are present its config file reports SFML_FOUND as
+    # false until SFML_STATIC_LIBRARIES is set, so try again that way before
+    # giving up.
+    find_package(SFML 3 COMPONENTS Graphics Window System Audio CONFIG QUIET)
+    if(NOT SFML_FOUND)
+        set(SFML_STATIC_LIBRARIES ON)
+        find_package(SFML 3 COMPONENTS Graphics Window System Audio CONFIG REQUIRED)
+        message(STATUS "SFML: using static libraries")
+    endif()
 endif()
 
 find_package(Threads REQUIRED)

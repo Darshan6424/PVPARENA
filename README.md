@@ -191,8 +191,8 @@ If it shows 2.x, build SFML 3 from source instead:
 ```bash
 # Libraries that SFML needs
 sudo apt install cmake g++ git \
-    libx11-dev libxrandr-dev libxcursor-dev libxi-dev libudev-dev \
-    libgl1-mesa-dev libfreetype-dev libopenal-dev libvorbis-dev libflac-dev
+    libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
+    libudev-dev libgl1-mesa-dev libfreetype-dev libvorbis-dev libflac-dev
 
 git clone --branch 3.1.0 --depth 1 https://github.com/SFML/SFML.git
 cmake -B sfml-build -S SFML -DCMAKE_BUILD_TYPE=Release
@@ -201,12 +201,20 @@ sudo cmake --install sfml-build
 sudo ldconfig
 ```
 
-Any 3.x version works. Then build the game:
+SFML 3 plays audio through miniaudio, which is built in, so OpenAL is not
+needed. Any 3.x version works, built either as shared or as static libraries -
+`CMakeLists.txt` detects which one you have.
+
+Then build and run the game:
 
 ```bash
 cmake -B build -S .
 cmake --build build -j
+./build/client
 ```
+
+The client finds `assets` next to its own executable, not next to your shell,
+so it runs the same from any directory.
 
 ### Sending the game to another player
 
