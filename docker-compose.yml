@@ -1,0 +1,39 @@
+services:
+  server:
+    build: .
+    image: pvparena-server
+    container_name: pvparena-server
+    restart: unless-stopped
+    command: ["9422"]
+
+    # Host networking, because the server identifies players by the address
+    # their packets came from. Behind Docker's NAT every client can end up
+    # looking like the bridge gateway, and the logs show that instead of real
+    # addresses. Host mode is Linux-only; see the bridge alternative below.
+    network_mode: host
+
+    # Nothing to write, nothing to escalate to.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Bridge networking instead, if you need port remapping or are not on Linux.
+# Remove network_mode above and use this:
+#
+#    ports:
+#      - "9422:9422/udp"
+#
+# The game still works this way, but every player shows up in the logs as the
+# Docker gateway address (172.17.0.1) instead of their real one.
+#
+# Note the "/udp" - a TCP-only firewall or cloud security group rule will
+# silently drop every packet.

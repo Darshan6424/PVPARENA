@@ -1,0 +1,31 @@
+[Unit]
+Description=PvP Arena dedicated server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/pvparena/server 9422
+Restart=always
+RestartSec=2
+
+# The server keeps no state, reads no files and needs no account of its own,
+# so let systemd invent a throwaway user for it.
+DynamicUser=yes
+
+# It only ever opens one UDP socket, so it can be locked down hard.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,275 +1,540 @@
 # PvP Arena
 
-A simple server-authoritative 1v1 PvP duel game. C++17, SFML for
-rendering, raw UDP for networking - no game frameworks.
+A 1v1 sword fighting game for two players over a network.
 
-Move around a small arena, land melee hits, parry your opponent's
-swings, dodge through attacks, and block to reduce chip damage.
-First to zero health loses.
+Two fighters meet in a small arena. You can move, attack, block, dodge and
+parry. Each attack costs stamina. The first player to reach zero health loses.
+
+The game is written in C++17. It uses SFML 3 for graphics and sound, and plain
+UDP for the network. It does not use a game engine.
+
+---
+
+## Words used in this guide
+
+If you are not sure about a word below, read this list first.
+
+| Word | Meaning |
+|---|---|
+| **Client** | The program the player runs. It shows the game and reads the keyboard. |
+| **Server** | The program that runs the rules. It decides who is hit and how much health is lost. |
+| **Host** | The computer that runs the server. |
+| **LAN** | Local network. All computers in the same house or office, on the same Wi-Fi or cable. |
+| **LAN IP** | The address of a computer inside a LAN. It usually starts with `192.168.` or `10.` |
+| **Public IP** | The address of your internet connection, seen from outside your house. |
+| **Port** | A number that picks one program on a computer. This game uses port `9422`. |
+| **UDP** | The type of network message this game uses. It is **not** TCP. This matters for firewalls. |
+| **Firewall** | Software that blocks network messages. You must allow port 9422 UDP. |
+| **Port forwarding** | A router setting. It sends messages from the internet to one computer in your LAN. |
+
+---
 
 ## Controls
 
-**Player 1 (or solo):**
+**Player 1 (also used when you play alone):**
 
-| Key                  | Action                          |
-|-----------------------|----------------------------------|
-| `W A S D`             | Move                             |
-| `J` or Left Click     | Attack                           |
-| `K` or Right Click    | Parry (short window - timing matters) |
-| `Space`                | Dodge (brief invulnerability)   |
-| `Left Shift` (hold)   | Block (reduces damage, drains stamina) |
-| `Esc`                  | Return to title screen           |
+| Key | Action |
+|---|---|
+| `W` `A` `S` `D` | Move |
+| `J` or left mouse click | Attack |
+| `K` or right mouse click | Parry |
+| `Space` | Dodge (you cannot be hit for a short time) |
+| `Left Shift` (hold down) | Block (less damage, but stamina goes down) |
+| `R` | Play again, on the win screen |
+| `Esc` | Go back to the title screen |
 
-**Player 2 (Local Co-op only):**
+**Player 2 (only in Local Co-op):**
 
-| Key                  | Action                          |
-|-----------------------|----------------------------------|
-| `Arrow Keys`           | Move                             |
-| `Right Ctrl`           | Attack                           |
-| `/`                    | Parry                            |
-| `Enter`                | Dodge                            |
-| `Right Shift` (hold)  | Block                            |
+| Key | Action |
+|---|---|
+| Arrow keys | Move |
+| `Right Ctrl` | Attack |
+| `/` | Parry |
+| `Enter` | Dodge |
+| `Right Shift` (hold down) | Block |
 
-## How the netcode works
+---
 
-The **server owns the entire game** - positions, health, stamina,
-who's attacking, who parried whom. It ticks at a fixed 60Hz (bumped up
-from an earlier 30Hz specifically to cut input latency - see
-"Feel/latency" below). The **client never computes gameplay**; it just
-sends your input (move direction + button presses) to the server and
-renders whatever the server's last `StateUpdate` packet says. This
-means there's no client-side prediction of *outcomes* and no
-cheating-by-modified-client - if it didn't happen on the server, it
-didn't happen. (There is one purely cosmetic exception - see
-"Feel/latency" below.)
+## Quick start: play on one computer
 
-- `ConnectRequest` → `ConnectAccept` (server assigns you player id 0 or 1)
-- Client sends `InputState` every frame
-- Server sends `StateUpdate` (both players' positions/health/stamina/state) every tick
+You do not need a network for this.
 
-You can either:
-- **Create Server** - runs the server on a background thread inside
-  your own client process, and connects you to `127.0.0.1`
-  automatically. Good for testing solo (see below) or hosting.
-- **Join** - type the host's IP address to connect to a server
-  someone else is running (their own "Create Server", or a
-  standalone `server` process - see below).
+1. Build the client. See [Building the client](#building-the-client).
+2. Start the client.
+3. Click **Local Co-op**.
 
-## Assets
+Two players now share one keyboard. The game starts a server inside the client
+program, so there is nothing else to set up.
 
-`assets/` (copied next to the built exe automatically by CMake) has a
-trimmed-down set pulled from your old Clash Royale project's asset
-pack - not everything in it, just what fit this game:
-
-- `sprites/characterSheet.png` / `skeletonSheet.png` - Universal LPC
-  Spritesheet layout (64x64 tiles, 13 cols x 21 rows). Player 1 renders
-  as the character sheet, player 2 as the skeleton, so the two fighters
-  read as distinct at a glance without needing color-coding.
-  Walk/slash/thrust/spellcast/hurt rows are mapped to
-  Idle/Moving/Attacking/Parrying/Blocking/Staggered/Dead respectively -
-  see the big comment at the top of `client/Renderer.h` for the exact
-  row layout if you want to retune it.
-- `sprites/bloodParticle.png` - small hit-impact splash, spawned
-  client-side whenever it observes a player's health drop between two
-  server updates (downscaled from the original 2048x2048 source).
-- `audio/title_music.ogg`, `battle_music.ogg` - menu and in-match
-  music, looped (re-encoded from the original mp3s to Ogg Vorbis,
-  ~18MB -> ~6.5MB combined, same audible quality at game volume).
-- `audio/attack_swing.ogg`, `parry_success.ogg`, `hit_land.ogg`,
-  `block_hit.ogg`, `ui_click.ogg`, `match_end.ogg` - one-shot SFX,
-  triggered by the client watching for the relevant change between
-  consecutive `StateUpdate` packets (an attack starting, health
-  dropping, a Staggered player who was mid-swing against an opponent
-  who was Parrying, a button press, `winnerId` first appearing). None
-  of this is the client deciding gameplay - it's reacting to what the
-  server already reported.
-
-**Skipped on purpose:** the old title screen graphic (you called it
-out), the projectile/spell sprites (no ranged attacks here), the
-tile/map assets (this game doesn't use tilemaps), and the
-inventory/UI chrome (health/stamina bars are still simple drawn rects
-for now). If you want any of those swapped in - or want a real
-block/parry pose instead of the reused Thrust/Spellcast stances I
-improvised from the sheet (there wasn't a dedicated guard pose in the
-pack) - point me at the file or a replacement pack and I'll wire it
-up.
-
-**Confirmed working:** the SFML 3 API calls for texture/sound-buffer
-loading and music looping in `Renderer.cpp`/`AudioManager.cpp` were a
-best-guess when first written and have since been confirmed correct -
-this all compiled and ran.
-
-## Building
-
-This project links SFML **statically** (`x64-windows-static` vcpkg
-triplet), so the resulting `client.exe`/`server.exe` have **no
-external DLL dependencies** - copy just the `.exe` (plus the
-`assets/` folder, which is separate - see "Distributing a build"
-below) to another machine with nothing installed and it runs.
-
-### Windows (VS Code + MSVC + vcpkg + CMake Tools)
-
-`.vscode/settings.json` is already pointed at the static triplet and
-your Build Tools vcpkg. In VS Code: **CMake: Delete Cache and
-Reconfigure**, then **Build**. First build after a fresh clone (or
-after any triplet change) will take a few minutes since vcpkg has to
-compile SFML and its dependencies from source for that triplet - this
-is normal, not a hang.
-
-Command-line equivalent, if you ever need it:
-```powershell
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static
-cmake --build build --config Release
-```
-
-Binaries land in `build/Release/` (or `build/` depending on your
-generator): `client.exe`, `server.exe`, `headless_test.exe`.
-
-> **This code targets SFML 3.x.** If your vcpkg instead gives you
-> SFML 2.x, the APIs differ enough (event handling,
-> `sf::Text`/`sf::FloatRect` constructors, scoped
-> `Keyboard::Key`/`Mouse::Button` enums, `openFromFile` vs
-> `loadFromFile`) that `client/Renderer.cpp`, `client/AudioManager.cpp`
-> and `client/main_client.cpp` would need patching back - ping me with
-> the compile errors.
-
-### Distributing a build to someone else's PC
-
-Static linking solves the "missing SFML DLL" problem, but it doesn't
-embed the sprite/audio files *into* the exe - those still load from
-disk at runtime. To hand the game to someone else, zip up and send:
-
-```
-client.exe
-assets/          <- the whole folder, as-is
-```
-
-Both need to stay in the same relative layout (the exe looks for
-`assets/` right next to itself, wherever it's placed - see
-`common/PathUtils.h` if you're curious how). If you want a *literal*
-single file with no companion folder at all, that means embedding the
-sprite/audio bytes directly into the binary as resources instead of
-loading from disk - doable, but a separate step from what's built
-here; say the word if you want that.
-
-### Linux
-
-```bash
-sudo apt install libsfml-dev cmake g++
-cmake -B build -S .
-cmake --build build -j4
-```
-
-Binaries land in `build/`: `client`, `server`, `headless_test`. (The
-static-triplet setup above is Windows/vcpkg-specific; on Linux this
-links against your distro's SFML package normally.)
-
-## Running
-
-**Local Co-op (two players, one PC, one keyboard):** click **Local
-Co-op** on the title screen. This starts an embedded server and
-connects two local players into it automatically - no IP typing
-needed. Player 1 uses WASD/J/K/Space/Shift, Player 2 uses
-Arrows/RCtrl/`/`/Enter/RShift (both schemes are shown on-screen during
-the match). Both players share the same view since the whole arena
-already fits on screen at once.
-
-**Two players on the same machine, two windows (testing netcode):**
-run `client`, click **Create Server**, play as player 0. Run a second
-`client`, click **Join**, type `127.0.0.1`, play as player 1.
-
-**Two players on different machines:** one player runs `client` and
-clicks **Create Server** (make sure UDP port `9422` is open/forwarded
-on their network). They'll land on a "Waiting for opponent to join..."
-screen showing their LAN IP and port in a big, hard-to-miss card - read
-that out (or screenshot it) to the other player. That player runs
-`client`, clicks **Join**, and types the IP shown.
-
-If Join just hangs on "Connecting..." until it times out, it's almost
-always one of these:
-
-- **Windows Firewall.** The first time `client.exe` runs and starts a
-  server, Windows should prompt "Windows Defender Firewall has
-  blocked some features of this app" - click **Allow access** (tick
-  both Private and Public networks). If that prompt was dismissed or
-  denied earlier, go to *Windows Security → Firewall & network
-  protection → Allow an app through firewall* and add `client.exe`
-  manually, with both boxes checked.
-- **Wrong kind of IP.** For two machines on the **same Wi-Fi/LAN**,
-  use the LAN IP shown on the host's screen (`192.168.x.x` or
-  `10.x.x.x`). For machines on **different networks** (over the
-  internet), the LAN IP won't be reachable at all - the host needs
-  their **public IP** (search "what's my ip") plus a port-forwarding
-  rule on their router forwarding UDP `9422` to their PC's LAN IP.
-  There's no relay/NAT-punchthrough in this project, so internet play
-  genuinely requires that forwarding step.
-- **Different networks with CGNAT** (common on mobile hotspots and
-  some ISPs) can make port forwarding impossible regardless of router
-  settings - if forwarding doesn't work, that's likely why.
-
-**Dedicated server (no player hosting from their own client):** run
-`server.exe` (or `./server`) standalone on any reachable machine, then
-both players **Join** its IP. Optional custom port: `server.exe 9500`.
-
-## Feel / latency
-
-Button presses were feeling delayed, so two things changed:
-
-- **Server tick rate: 30Hz → 60Hz.** The server only looks at input
-  once per tick, so this halves the worst-case time a press can sit
-  before the server even sees it. Attack windup was also trimmed
-  slightly (120ms → 90ms) for a snappier swing without removing the
-  telegraph entirely.
-- **Optimistic local swing sound.** The attack-swing sound now plays
-  the instant *you* press attack, if the last known server state says
-  the attack would actually be allowed to start (not on cooldown,
-  enough stamina) - rather than waiting for the round-trip
-  confirmation. This is purely a client-side sound preview to mask
-  network latency; it never decides whether the attack actually
-  happens, and if the server ends up not starting the attack for some
-  reason, nothing else about that swing occurs - just the sound cue,
-  which is a fair trade for how rarely the guess is wrong. The
-  authoritative outcome (positions, damage, parries) is exactly as
-  server-driven as before.
-
-## What's implemented vs. not yet
-
-**Working:** movement, player-vs-player collision, melee attacks,
-blocking, dodging with i-frames, parrying (punishes the attacker with
-a stagger instead of landing damage), stamina costs/regen, health,
-win/lose detection, sprite-animated characters (walk/attack/parry/
-block/stagger/death, using real observed movement direction for the
-walk cycle), idle breathing motion, blood-splash hit effects, screen
-shake on clean hits, title/battle music, combat and UI sound effects,
-title screen, Create/Join flow with a proper "waiting for opponent"
-screen showing the host's IP, and Local Co-op (two players, one
-keyboard, split keybindings, shared view).
-
-**Not yet built:** reconnect/timeout handling if a player's client
-crashes mid-match, matchmaking codes (Join still takes a raw IP), a
-dedicated block/parry sprite pose (currently improvised from the
-sheet's Thrust/Spellcast rows - see the Assets section), single-file
-asset embedding (assets still ship as a separate folder next to the
-exe - see "Distributing a build" above).
+---
 
 ## Project layout
 
 ```
-common/    Shared wire protocol, UDP socket wrapper, executable-path
-           helper, small math helpers
-server/    Authoritative simulation (GameServer) + standalone server.exe entry point
-client/    SFML rendering (sprites/animation/HUD), audio (music/SFX),
-           input capture, title screen, and networking client
-test/      Headless test that spins up the real server and drives two fake
-           clients through movement/attack/parry to sanity-check the combat
-           math without needing a display - this is what was used to verify
-           the logic below actually works before shipping it.
+src/
+  common/          Message format, UDP socket, Vec2 maths, exe path helper
+  server/
+    sim/           Fighter and ArenaSim - the rules, no input or output
+    net/           Session and GameServer - sockets and the tick loop
+    main.cpp       The dedicated server program
+  client/
+    app/           Game (owns everything) and MatchWatcher
+    screens/       Screen base class and the four screens
+    net/           GameClient and EmbeddedServer
+    view/          Assets, Renderer, AudioManager
+    input/         InputCapture
+    main.cpp       The client program
+tests/             Four test programs. No screen and no SFML needed.
+deploy/            systemd service file and a deploy script
+assets/            Images, sounds and the font the client loads at run time
 ```
 
-## Tuning combat feel
+Every file includes headers from the `src` root, so a header is written the
+same way everywhere:
 
-All the numbers that matter (attack damage, stamina costs, parry
-window length, dodge i-frame duration, move speed, etc.) are one
-block of named constants at the top of `common/Protocol.h`. Change a
-number there, rebuild, and every rule that depends on it - server
-combat resolution, nothing on the client - updates automatically.
+```cpp
+#include "server/sim/Fighter.h"
+```
+
+Three folders explain most of the design:
+
+- **`server/sim`** holds the rules and nothing else. `Fighter` owns one
+  duellist's health, stamina and current action, and is the only code allowed
+  to change them. `ArenaSim` is the referee: it decides who is in range of who,
+  pushes overlapping fighters apart, and ends the match. Neither one opens a
+  socket, starts a thread or reads a clock. That is why the rule tests finish
+  in about one millisecond instead of playing real matches in real time.
+- **`client/screens`** is a small class hierarchy. `Screen` is an abstract base
+  class with `handleEvent`, `update` and `draw`. `TitleScreen`, `AddressScreen`,
+  `ConnectingScreen` and `MatchScreen` each override what they need. The main
+  loop calls the same three methods every frame and never asks which screen is
+  active.
+- **`client/view`** holds `Assets`, which is the only class that opens a file.
+  A list at the top of `Assets.cpp` maps each name to each path, so no other
+  file in the client builds a path string. `Game` owns the one `Assets` object
+  and passes it to `Renderer` and `AudioManager` by reference.
+
+---
+
+## How the network works
+
+The server owns the whole game. It decides positions, health, stamina, and who
+parried who. It runs 60 times per second. The client only sends your key
+presses and draws the last picture the server sent. The client never decides
+the result of anything.
+
+Message flow:
+
+1. Client sends `ConnectRequest`. Server answers `ConnectAccept` and gives the
+   client a player number, 0 or 1.
+2. Client sends `InputState` every frame.
+3. Server sends `StateUpdate` to both players every tick.
+4. When both players send `Rematch`, the server starts a new match.
+
+Three safety rules are built in:
+
+- The server decides which player sent a message by looking at the **address
+  the message came from**, not the player number written inside the message.
+  So one player cannot control or disconnect the other player.
+- Old messages that arrive late are thrown away.
+- A client that sends nothing for 8 seconds loses its slot.
+
+---
+
+## Building the client
+
+The client needs **SFML version 3**. SFML 2 will not work. The two versions
+have different function names, so the code will not compile with SFML 2.
+
+The Docker image described later contains **only the server**. You always build
+the client separately, on the computer where you want to play.
+
+### Windows (Visual Studio Build Tools + vcpkg + VS Code)
+
+1. Open `.vscode/settings.json`.
+2. Change `CMAKE_TOOLCHAIN_FILE` to the path of your own vcpkg installation.
+3. In VS Code, run **CMake: Delete Cache and Reconfigure**.
+4. Build.
+
+The first build takes a long time. vcpkg compiles SFML from source. This is
+normal. It is not frozen.
+
+Do not change `VCPKG_TARGET_TRIPLET`. It must stay `x64-windows-static`,
+because `CMakeLists.txt` sets the static C runtime. If the two settings do not
+match, the build fails, or the program crashes later because it uses two
+separate memory heaps.
+
+Command line version:
+
+```powershell
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static
+cmake --build build --config Release
+```
+
+### Linux
+
+Most Linux distributions still package SFML 2.6. That version does not work.
+Check your version first:
+
+```bash
+apt-cache policy libsfml-dev     # Debian or Ubuntu
+```
+
+If it shows 3.x, install it:
+
+```bash
+sudo apt install libsfml-dev cmake g++
+```
+
+If it shows 2.x, build SFML 3 from source instead:
+
+```bash
+# Libraries that SFML needs
+sudo apt install cmake g++ git \
+    libx11-dev libxrandr-dev libxcursor-dev libxi-dev libudev-dev \
+    libgl1-mesa-dev libfreetype-dev libopenal-dev libvorbis-dev libflac-dev
+
+git clone --branch 3.1.0 --depth 1 https://github.com/SFML/SFML.git
+cmake -B sfml-build -S SFML -DCMAKE_BUILD_TYPE=Release
+cmake --build sfml-build -j
+sudo cmake --install sfml-build
+sudo ldconfig
+```
+
+Any 3.x version works. Then build the game:
+
+```bash
+cmake -B build -S .
+cmake --build build -j
+```
+
+### Sending the game to another player
+
+```bash
+cmake --install build --prefix dist
+```
+
+This creates a `dist` folder with the programs and the `assets` folder next to
+them. Send the whole folder. The client reads images, sounds and the font from
+`assets` while it runs, so `assets` must always stay next to the client
+program.
+
+---
+
+## Running the server
+
+You have three options. Docker is the easiest for a real server.
+
+### Option A: Docker (recommended)
+
+You need Docker with the Compose plugin.
+
+```bash
+docker compose up -d --build
+```
+
+That is the whole installation. The build runs the tests, so a broken build
+never becomes an image.
+
+The image is about 1.2 MB. The server is linked statically, which means the
+program contains everything it needs. The final image is built `FROM scratch`,
+so it holds one file and nothing else: no Linux distribution, no shell, no
+package manager.
+
+Useful commands:
+
+```bash
+docker compose ps               # is it running?
+docker compose logs -f          # watch players join and leave
+docker compose down             # stop and remove it
+docker compose up -d --build    # apply new code
+```
+
+### Option B: static binary and systemd
+
+Use this if you do not want Docker. Full steps are in
+[`deploy/README.md`](deploy/README.md).
+
+Short version:
+
+```bash
+./deploy/deploy.sh user@your-server
+```
+
+This builds the server, runs the tests, copies one file to your server and
+restarts the service.
+
+### Option C: build on the server itself
+
+The server needs no graphics libraries. `-DBUILD_CLIENT=OFF` is the important
+part. Without it, CMake looks for SFML and stops with an error.
+
+```bash
+sudo apt install g++ cmake git
+git clone <your repo> pvparena && cd pvparena
+cmake -B build -S . -DBUILD_CLIENT=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/server 9422
+```
+
+---
+
+## Production checklist
+
+Check every point below before you let real players connect.
+
+### 1. Open the port for UDP, not TCP
+
+This is the most common mistake. The game only uses UDP. A rule that allows
+TCP will let nothing through, and the client will just show
+"Connection timed out".
+
+On the server computer:
+
+```bash
+sudo ufw allow 9422/udp          # Ubuntu and Debian
+sudo firewall-cmd --permanent --add-port=9422/udp && sudo firewall-cmd --reload   # Fedora, RHEL
+```
+
+If your server is at a cloud provider (AWS, Google Cloud, Azure, Hetzner,
+Oracle and others), there is a **second** firewall in their web console. It is
+often called a security group, a network rule or a cloud firewall. You must add
+UDP port 9422 there as well. Opening only the Linux firewall is not enough.
+
+Check that the server is listening:
+
+```bash
+ss -lun | grep 9422
+```
+
+### 2. Choose the right Docker network mode
+
+`docker-compose.yml` uses `network_mode: host`. This means the container shares
+the network of the host computer. Use this on Linux. There are two reasons:
+
+- Real player addresses appear in the logs. With Docker's normal bridge
+  network, every player can look like the same internal Docker address.
+- There is no address translation, so there is slightly less delay.
+
+With host mode, the `ports:` setting does nothing. The host firewall rule is
+what opens the port.
+
+If you are not on Linux, or you need to change the port number from outside,
+use bridge mode instead. Remove `network_mode: host` and add:
+
+```yaml
+    ports:
+      - "9422:9422/udp"
+```
+
+Do not forget `/udp` at the end.
+
+### 3. Understand the restart behaviour
+
+`restart: unless-stopped` is already set. It was tested:
+
+- If the server program crashes or exits with an error, Docker starts it again.
+- If **you** stop it with `docker compose stop` or `docker kill`, Docker treats
+  this as intentional and does **not** start it again. This is normal Docker
+  behaviour, not a bug.
+
+The server handles `SIGTERM`, so `docker compose stop` finishes in well under
+one second instead of waiting for the 10 second timeout.
+
+### 4. Remember: one container holds one match
+
+`MAX_PLAYERS` is 2. One server process serves exactly two players. If a third
+player tries to join, the server answers "Server full".
+
+To host several matches at the same time, run several containers on different
+ports. Add more services to `docker-compose.yml`:
+
+```yaml
+  server2:
+    image: pvparena-server
+    network_mode: host
+    restart: unless-stopped
+    command: ["9423"]
+```
+
+Open every extra port in the firewall too.
+
+### 5. Know that you cannot open a shell in the container
+
+The image is built `FROM scratch`. It contains no shell, so this will fail:
+
+```bash
+docker exec -it pvparena-server sh     # does not work
+```
+
+This is intentional. A smaller image means fewer security problems. Read the
+logs instead:
+
+```bash
+docker compose logs -f
+```
+
+If you really need a shell for debugging, change the last section of
+`Dockerfile` to:
+
+```dockerfile
+FROM debian:bookworm-slim
+COPY --from=build /src/build/server /server
+USER 65534:65534
+ENTRYPOINT ["/server"]
+CMD ["9422"]
+```
+
+The image becomes about 115 MB instead of 1.2 MB.
+
+### 6. Log rotation is already configured
+
+`docker-compose.yml` keeps at most 3 log files of 10 MB each. Without this
+setting, Docker logs grow until the disk is full. If you use systemd instead of
+Docker, `journald` already limits log size.
+
+### 7. Restarting disconnects the players
+
+There is no reconnect feature yet. When you update or restart the server, both
+players return to the title screen and must join again. Update between matches.
+
+### 8. Understand the security limits
+
+Please read this part carefully before you put the server on the public
+internet.
+
+- **There are no accounts and no passwords.** Anybody who knows the address and
+  the port can join.
+- **Messages are not encrypted.** Somebody who can watch the network can read
+  the positions and health values. There are no passwords in the messages, so
+  there is nothing secret to steal, but be aware of it.
+- **There is no protection against flooding.** Somebody could take both player
+  slots and stop real players from joining. A slot becomes free again 8 seconds
+  after that client stops sending messages.
+- **One player cannot control another player.** The server checks the address
+  every message came from. This is tested.
+
+The container helps here. It runs as user `65534`, with a read-only filesystem,
+with all Linux capabilities dropped, and with a 128 MB memory limit.
+
+For a private game with friends, this is fine. For a public server, put it
+behind a firewall rule that only allows the addresses you trust.
+
+---
+
+## Playing over the internet
+
+### Both players in the same house or office
+
+Use the **LAN IP** of the host. The host sees it on the
+"Waiting for opponent" screen. It looks like `192.168.1.42`. The other player
+clicks **Join** and types that address.
+
+### Players in different places
+
+1. The host needs their **public IP**. Search the internet for "what is my ip".
+2. The host must set up **port forwarding** on their router: forward UDP port
+   9422 to the LAN IP of the computer running the server.
+3. The other player clicks **Join** and types the public IP.
+
+If the host uses a rented server instead of their home computer, port
+forwarding is not needed. Only the firewall rules from the checklist matter.
+
+**CGNAT warning.** Some internet providers, and most mobile hotspots, share one
+public IP between many customers. This is called CGNAT. With CGNAT, port
+forwarding cannot work, whatever you change in the router. If forwarding does
+not work and you have already checked everything else, this is the likely
+reason. Use a rented server instead.
+
+### Using a different port
+
+The client accepts `IP:port` as well as `IP`. For example `203.0.113.9:9500`.
+Start the server with `./server 9500`, or change the `command:` line in
+`docker-compose.yml`.
+
+---
+
+## Solving problems
+
+| Problem | Likely cause |
+|---|---|
+| "Connection timed out" | Port not open, or opened for TCP instead of UDP. Check the cloud firewall too. |
+| Works in the LAN but not from the internet | Port forwarding missing, or CGNAT. |
+| "Server full" | Two players are already connected. Wait 8 seconds after they leave, or start a second container. |
+| The server stopped and did not restart | You stopped it manually. Use `docker compose up -d`. |
+| Window opens but there is no text | The font is missing. `assets` must be next to the client program. |
+| Characters are coloured circles | The sprite images are missing from `assets`. |
+| CMake error about SFML on the server | You forgot `-DBUILD_CLIENT=OFF`. |
+| Client will not compile | You have SFML 2. You need SFML 3. |
+
+Useful commands:
+
+```bash
+docker compose logs -f            # connects, disconnects, timeouts
+ss -lun | grep 9422               # is the server listening?
+sudo ufw status                   # is the port open?
+```
+
+---
+
+## Tests
+
+Four test programs, no test framework:
+
+- `fighter_test` tests one `Fighter` on its own. These checks exist because
+  `Fighter` promises things about its own state - health stays between zero and
+  the maximum, the dead stay dead, a swing only counts once - and those
+  promises are the reason its data is private.
+- `sim_test` tests the rules with two fighters: damage, range, the attack
+  window, blocking, parrying, dodge invulnerability, stamina, buffered key
+  presses, death, restart, collision and arena limits.
+- `network_test` starts a real server and uses real UDP, but it drives the
+  server by hand, so there are no threads and no waiting. It tests the
+  handshake, the "server full" answer, fake messages from strangers, old
+  messages, timeouts, reconnecting and rematches.
+- `watcher_test` tests `MatchWatcher`, which turns server updates into sound
+  and effect events.
+
+Run them all:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+All four finish in well under one second.
+
+---
+
+## Changing how the game feels
+
+Damage, stamina costs, the parry window, dodge invulnerability time, movement
+speed and all other numbers are constants at the top of `src/common/Protocol.h`.
+Change a number, rebuild, and the server uses it. The client has no copy of the
+rules, so there is nothing else to change.
+
+---
+
+## Assets
+
+`assets/sprites` uses the Universal LPC Spritesheet layout: 64x64 tiles, 13
+columns and 21 rows. Player 1 uses the character sheet and player 2 uses the
+skeleton sheet, so the two fighters are easy to tell apart. The sheet has no
+guard pose, so blocking and parrying reuse the spellcast and thrust poses.
+
+`assets/fonts/DejaVuSans-Bold.ttf` is included with the game. Earlier the game
+looked for a font already installed on the computer, and all text disappeared
+on computers that did not have one. The licence is next to it in
+`DejaVu-LICENSE.txt`.
+
+The sprites and audio came from an older asset pack. Read
+`assets/ATTRIBUTION.md` before you share a build.
+
+---
+
+## Not finished yet
+
+- No smoothing between server updates, so movement can look slightly jumpy on a
+  poor connection. See the note in `src/client/net/GameClient.h`.
+- No reconnect. If the server restarts, players go back to the title screen.
+- Join needs a real address. There are no short room codes.
+- The assets are a separate folder. They are not built into the program file.

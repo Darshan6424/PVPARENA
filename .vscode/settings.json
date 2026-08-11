@@ -1,10 +1,13 @@
 {
-    // Point this at YOUR vcpkg install (the folder containing vcpkg.exe).
-    // Edit the path below, then run "CMake: Configure" from the CMake
-    // Tools sidebar - no terminal needed.
+    // Point CMAKE_TOOLCHAIN_FILE at your own vcpkg (the folder with vcpkg.exe),
+    // then run "CMake: Configure" from the CMake Tools sidebar.
+    //
+    // The triplet has to stay x64-windows-static to match the static CRT set
+    // in CMakeLists.txt. Switching to x64-windows will link SFML as DLLs
+    // against a statically linked CRT, which fails or corrupts the heap.
     "cmake.configureSettings": {
         "CMAKE_TOOLCHAIN_FILE": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
     },
     "cmake.buildDirectory": "${workspaceFolder}/build"
 }
