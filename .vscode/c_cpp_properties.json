@@ -1,0 +1,17 @@
+{
+    // Headers are written from the src root, e.g. #include "server/sim/Fighter.h",
+    // so IntelliSense needs src on its include path the same way CMake does.
+    "configurations": [
+        {
+            "name": "PvP Arena",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/tests"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "configurationProvider": "ms-vscode.cmake-tools"
+        }
+    ],
+    "version": 4
+}

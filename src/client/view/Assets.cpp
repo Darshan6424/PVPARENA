@@ -4,10 +4,22 @@
 namespace {
 
 // The manifest. Order has to match the enums in Assets.h.
-const char* const kTexturePaths[] = {
-    "sprites/characterSheet.png",
-    "sprites/skeletonSheet.png",
-    "sprites/bloodParticle.png",
+//
+// smooth turns on bilinear filtering. Character sheets need it off or the
+// pixel art blurs; the painted backgrounds and the scaled-down blood splash
+// look better with it on.
+struct TextureEntry {
+    const char* path;
+    bool smooth;
+};
+
+const TextureEntry kTextures[] = {
+    { "sprites/characterSheet.png", false },
+    { "sprites/skeletonSheet.png",  false },
+    { "sprites/bloodParticle.png",  true  },
+    { "sprites/floor_texture.png",  true  },
+    { "sprites/floor_decor.png",    true  },
+    { "sprites/title_bg.png",       true  },
 };
 
 const char* const kSoundPaths[] = {
@@ -35,7 +47,7 @@ const char* const kSystemFonts[] = {
     "/System/Library/Fonts/Supplemental/Arial.ttf",
 };
 
-static_assert(sizeof(kTexturePaths) / sizeof(kTexturePaths[0]) ==
+static_assert(sizeof(kTextures) / sizeof(kTextures[0]) ==
               static_cast<std::size_t>(Tex::Count), "texture manifest out of sync");
 static_assert(sizeof(kSoundPaths) / sizeof(kSoundPaths[0]) ==
               static_cast<std::size_t>(Sfx::Count), "sound manifest out of sync");
@@ -48,15 +60,13 @@ bool Assets::loadAll() {
     missing_.clear();
 
     for (std::size_t i = 0; i < kTexCount; ++i) {
-        texOk_[i] = textures_[i].loadFromFile(root_ + kTexturePaths[i]);
+        texOk_[i] = textures_[i].loadFromFile(root_ + kTextures[i].path);
         if (texOk_[i]) {
-            textures_[i].setSmooth(false);
+            textures_[i].setSmooth(kTextures[i].smooth);
         } else {
-            missing_.push_back(kTexturePaths[i]);
+            missing_.push_back(kTextures[i].path);
         }
     }
-    // The blood splash is scaled down a lot, so smoothing helps there.
-    if (texOk_[index(Tex::Blood)]) textures_[index(Tex::Blood)].setSmooth(true);
 
     for (std::size_t i = 0; i < kSfxCount; ++i) {
         sfxOk_[i] = sounds_[i].loadFromFile(root_ + kSoundPaths[i]);

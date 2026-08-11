@@ -65,6 +65,7 @@ void ConnectingScreen::bringSecondPlayerOnline(float dt) {
 }
 
 void ConnectingScreen::draw(float) {
+    game_.renderer().drawTitleBackground(game_.window());
     game_.renderer().drawCenteredText(game_.window(), game_.statusMessage(),
                                       ARENA_WIDTH / 2.f, ARENA_HEIGHT / 2.f, 20,
                                       sf::Color::White);

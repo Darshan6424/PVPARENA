@@ -50,6 +50,7 @@ void AddressScreen::draw(float) {
     Renderer& r = game_.renderer();
     sf::RenderWindow& w = game_.window();
 
+    r.drawTitleBackground(w);
     r.drawCenteredText(w, "Enter server address", ARENA_WIDTH / 2.f, 190.f, 24,
                        sf::Color::White);
     r.drawCenteredText(w, game_.addressText(), ARENA_WIDTH / 2.f, 240.f, 28,

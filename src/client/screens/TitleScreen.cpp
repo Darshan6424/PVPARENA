@@ -32,6 +32,7 @@ void TitleScreen::draw(float) {
     Renderer& r = game_.renderer();
     sf::RenderWindow& w = game_.window();
 
+    r.drawTitleBackground(w);
     r.drawCenteredText(w, "PVP ARENA", ARENA_WIDTH / 2.f, 110.f, 36, sf::Color::White);
     r.drawButton(w, hostBtn_, "Create Server", game_.hovering(hostBtn_));
     r.drawButton(w, joinBtn_, "Join", game_.hovering(joinBtn_));

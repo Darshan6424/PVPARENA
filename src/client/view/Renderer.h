@@ -12,6 +12,7 @@
 #include "common/Protocol.h"
 #include <SFML/Graphics.hpp>
 #include <array>
+#include <string>
 #include <vector>
 
 class Renderer {
@@ -19,6 +20,9 @@ public:
     explicit Renderer(const Assets& assets) : assets_(assets) {}
 
     void drawArena(sf::RenderWindow& window);
+
+    // Backdrop for the menu screens. Dimmed and shaded so text stays readable.
+    void drawTitleBackground(sf::RenderWindow& window);
 
     // stateTime is how long this player has been in its current state, which
     // the caller tracks because only it knows when the snapshot changed.
@@ -30,8 +34,11 @@ public:
                  uint8_t povId);
 
     void spawnHitEffect(float x, float y);
-    void updateAndDrawHitEffects(sf::RenderWindow& window, float dt);
-    void clearHitEffects() { effects_.clear(); }
+
+    // Floating "-14" above a hit. Blocked hits get their own colour.
+    void spawnDamageNumber(float x, float y, float damage, bool blocked);
+
+    void updateAndDrawEffects(sf::RenderWindow& window, float dt);
 
     void drawCenteredText(sf::RenderWindow& window, const std::string& text,
                           float x, float y, unsigned size, sf::Color color);
@@ -46,6 +53,16 @@ private:
         float age = 0.f;
     };
 
+    struct DamageNumber {
+        sf::Vector2f pos;
+        float age = 0.f;
+        std::string text;
+        sf::Color color;
+    };
+
+    void drawHitEffects(sf::RenderWindow& window, float dt);
+    void drawDamageNumbers(sf::RenderWindow& window, float dt);
+
     void drawPlayerSprite(sf::RenderWindow& window, const net::PlayerSnapshot& snap,
                           int playerIndex, float stateTime);
     void drawPlayerShape(sf::RenderWindow& window, const net::PlayerSnapshot& snap,
@@ -53,10 +70,13 @@ private:
 
     const Assets& assets_;
     std::vector<HitEffect> effects_;
+    std::vector<DamageNumber> damageNumbers_;
 
-    // Last direction each player was seen moving, used to pick a walk row.
-    // Kept between frames so a repeated snapshot doesn't make it flicker.
+    // Which walk-cycle row each player is using. A render frame that falls
+    // between two network updates sees no movement at all, so the row is only
+    // changed on movement big enough to be real, and held otherwise. Without
+    // this the walk animation flickers toward the left/right fallback.
     std::array<sf::Vector2f, net::MAX_PLAYERS> lastPos_{};
-    std::array<sf::Vector2f, net::MAX_PLAYERS> lastDir_{};
+    std::array<int, net::MAX_PLAYERS> lastWalkRow_{ -1, -1 };
     std::array<bool, net::MAX_PLAYERS> haveLastPos_{};
 };

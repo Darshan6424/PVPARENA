@@ -68,6 +68,7 @@ int main() {
         MatchEvents e = w.observe(s, 0.016f);
         CHECK(e.players[1].tookCleanHit);
         CHECK(!e.players[1].tookBlockedHit);
+        CHECK_NEAR(e.players[1].damage, ATTACK_DAMAGE);
         CHECK_NEAR(e.players[1].hitX, 123.f);
         CHECK_NEAR(e.players[1].hitY, 45.f);
 
@@ -77,6 +78,7 @@ int main() {
         MatchEvents blocked = w.observe(s, 0.016f);
         CHECK(blocked.players[1].tookBlockedHit);
         CHECK(!blocked.players[1].tookCleanHit);
+        CHECK_NEAR(blocked.players[1].damage, 5.f);
     }
 
     TEST("swinging into a parry is reported");

@@ -9,5 +9,15 @@
         "CMAKE_TOOLCHAIN_FILE": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static"
     },
-    "cmake.buildDirectory": "${workspaceFolder}/build"
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+
+    // Pin vcpkg's own compiler probing to the VS2022 Build Tools. Without
+    // this, a machine that also has a newer Visual Studio installed can have
+    // vcpkg build SFML with that newer toolset while the project still links
+    // with VS2022, and the two STL versions do not match - which shows up as
+    // unresolved symbols like __std_search_4 at link time.
+    "cmake.environment": {
+        "VCPKG_VISUAL_STUDIO_PATH": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools",
+        "VCPKG_PLATFORM_TOOLSET": "v143"
+    }
 }

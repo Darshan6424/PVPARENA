@@ -12,6 +12,10 @@ Redistribution is permitted; the full licence text is in
 Universal LPC Spritesheet layout. `sprites/bloodParticle.png` is a downscaled
 impact splash.
 
+`sprites/floor_texture.png`, `sprites/floor_decor.png` and
+`sprites/title_bg.png` come from a separate hand-painted background pack,
+downscaled to the arena size.
+
 TODO: these came out of an older asset pack and the original authors are not
 recorded here yet. LPC art is typically CC-BY-SA 3.0 and/or GPL 3.0, both of
 which require naming the artists and keeping the licence with the work. Track

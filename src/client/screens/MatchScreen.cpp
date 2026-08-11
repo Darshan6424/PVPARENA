@@ -103,6 +103,8 @@ void MatchScreen::applyEvents(const MatchEvents& events) {
         }
         if (e.tookCleanHit || e.tookBlockedHit) {
             game_.renderer().spawnHitEffect(e.hitX, e.hitY);
+            game_.renderer().spawnDamageNumber(e.hitX, e.hitY - 45.f, e.damage,
+                                               e.tookBlockedHit);
         }
     }
     if (events.matchJustEnded) game_.audio().play(Sfx::MatchEnd);
@@ -131,7 +133,7 @@ void MatchScreen::draw(float dt) {
     for (int i = 0; i < MAX_PLAYERS; ++i) {
         r.drawPlayer(w, state.players[i], i, povId, game_.watcher().stateTime(i));
     }
-    r.updateAndDrawHitEffects(w, dt);
+    r.updateAndDrawEffects(w, dt);
     r.drawHud(w, state, povId);
 
     if (game_.isLocalCoop() && !matchOver()) {

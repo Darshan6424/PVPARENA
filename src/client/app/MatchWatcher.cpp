@@ -58,6 +58,7 @@ MatchEvents MatchWatcher::observe(const StateUpdatePacket& state, float dt) {
                            was.state == ActionState::Blocking;
             out.tookCleanHit = !blocked;
             out.tookBlockedHit = blocked;
+            out.damage = was.health - now.health;
             out.hitX = now.x;
             out.hitY = now.y;
         }

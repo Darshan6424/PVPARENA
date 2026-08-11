@@ -10,6 +10,12 @@ constexpr int TILE = 64;
 constexpr float SPRITE_SCALE = 1.35f;
 constexpr float WALK_FRAME_TIME = 0.09f;
 constexpr float HIT_EFFECT_LIFETIME = 0.35f;
+constexpr float DAMAGE_NUMBER_LIFETIME = 0.8f;
+constexpr float DAMAGE_NUMBER_RISE = 34.f;
+
+// Movement smaller than this between two frames is noise, not a direction
+// change. Anything less and the walk row flickers between network updates.
+constexpr float WALK_DIRECTION_EPS = 0.5f;
 
 // First row of each 4-row group; +1 is left, +3 is right.
 constexpr int ROW_SPELLCAST = 0;
@@ -43,26 +49,19 @@ struct Pose {
     std::uint8_t alpha = 255;
 };
 
-Pose poseFor(const PlayerSnapshot& snap, float stateTime, sf::Vector2f moveDir) {
+// walkRow is the row the caller last saw this player actually walking along,
+// or -1 if it has not seen real movement yet.
+Pose poseFor(const PlayerSnapshot& snap, float stateTime, int walkRow) {
     Pose pose;
     switch (snap.state) {
     case ActionState::Idle:
         pose.row = facingRow(ROW_WALK, snap.facing);
         break;
 
-    case ActionState::Moving: {
-        float absX = std::fabs(moveDir.x);
-        float absY = std::fabs(moveDir.y);
-        if (absY > absX && absY > 0.0001f) {
-            pose.row = ROW_WALK + (moveDir.y < 0.f ? 0 : 2);
-        } else if (absX > 0.0001f) {
-            pose.row = ROW_WALK + (moveDir.x < 0.f ? 1 : 3);
-        } else {
-            pose.row = facingRow(ROW_WALK, snap.facing);
-        }
+    case ActionState::Moving:
+        pose.row = (walkRow >= 0) ? walkRow : facingRow(ROW_WALK, snap.facing);
         pose.frame = frameAt(stateTime, WALK_FRAME_TIME, FRAMES_WALK, true);
         break;
-    }
 
     case ActionState::Attacking: {
         pose.row = facingRow(ROW_SLASH, snap.facing);
@@ -133,20 +132,29 @@ Tex textureFor(int playerIndex) {
 
 void Renderer::resetAnimationState() {
     lastPos_ = {};
-    lastDir_ = {};
+    lastWalkRow_ = { -1, -1 };
     haveLastPos_ = {};
     effects_.clear();
+    damageNumbers_.clear();
 }
 
 void Renderer::drawArena(sf::RenderWindow& window) {
-    sf::RectangleShape ground({ ARENA_WIDTH, ARENA_HEIGHT });
-    ground.setPosition({ 0.f, 0.f });
-    ground.setFillColor(sf::Color(40, 44, 52));
-    window.draw(ground);
+    bool floorLoaded = assets_.has(Tex::FloorTexture) && assets_.has(Tex::FloorDecor);
+
+    if (floorLoaded) {
+        window.draw(sf::Sprite(assets_.texture(Tex::FloorTexture)));
+        window.draw(sf::Sprite(assets_.texture(Tex::FloorDecor)));
+    } else {
+        sf::RectangleShape ground({ ARENA_WIDTH, ARENA_HEIGHT });
+        ground.setPosition({ 0.f, 0.f });
+        ground.setFillColor(sf::Color(40, 44, 52));
+        window.draw(ground);
+    }
 
     sf::RectangleShape midline({ 2.f, ARENA_HEIGHT });
     midline.setPosition({ ARENA_WIDTH / 2.f - 1.f, 0.f });
-    midline.setFillColor(sf::Color(70, 74, 84));
+    midline.setFillColor(floorLoaded ? sf::Color(255, 255, 255, 40)
+                                     : sf::Color(70, 74, 84));
     window.draw(midline);
 
     sf::RectangleShape border({ ARENA_WIDTH - 4.f, ARENA_HEIGHT - 4.f });
@@ -155,6 +163,20 @@ void Renderer::drawArena(sf::RenderWindow& window) {
     border.setOutlineColor(sf::Color(90, 95, 105));
     border.setOutlineThickness(3.f);
     window.draw(border);
+}
+
+void Renderer::drawTitleBackground(sf::RenderWindow& window) {
+    if (!assets_.has(Tex::TitleBackground)) return;
+
+    sf::Sprite bg(assets_.texture(Tex::TitleBackground));
+    bg.setColor(sf::Color(160, 160, 160));   // dim it so the buttons stay readable
+    window.draw(bg);
+
+    // Even dimmed art competes with text, so a light shade goes over the top.
+    sf::RectangleShape shade({ ARENA_WIDTH, ARENA_HEIGHT });
+    shade.setPosition({ 0.f, 0.f });
+    shade.setFillColor(sf::Color(10, 10, 15, 70));
+    window.draw(shade);
 }
 
 void Renderer::drawPlayer(sf::RenderWindow& window, const PlayerSnapshot& snap,
@@ -187,19 +209,24 @@ void Renderer::drawPlayerSprite(sf::RenderWindow& window, const PlayerSnapshot& 
                                 int playerIndex, float stateTime) {
     sf::Vector2f pos{ snap.x, snap.y };
 
-    // Work out which way they're actually travelling. Snapshots can repeat
-    // between frames, so keep the last real direction instead of resetting to
-    // zero and making the walk cycle flicker.
+    // Pick the walk row from real movement only. A frame drawn between two
+    // network updates sees a delta of zero, and reacting to that is what made
+    // the walk cycle flicker.
     if (haveLastPos_[playerIndex]) {
         sf::Vector2f delta = pos - lastPos_[playerIndex];
-        if (std::fabs(delta.x) > 0.01f || std::fabs(delta.y) > 0.01f) {
-            lastDir_[playerIndex] = delta;
+        float absX = std::fabs(delta.x);
+        float absY = std::fabs(delta.y);
+
+        if (absY > absX && absY > WALK_DIRECTION_EPS) {
+            lastWalkRow_[playerIndex] = ROW_WALK + (delta.y < 0.f ? 0 : 2);
+        } else if (absX > WALK_DIRECTION_EPS) {
+            lastWalkRow_[playerIndex] = ROW_WALK + (delta.x < 0.f ? 1 : 3);
         }
     }
     lastPos_[playerIndex] = pos;
     haveLastPos_[playerIndex] = true;
 
-    Pose pose = poseFor(snap, stateTime, lastDir_[playerIndex]);
+    Pose pose = poseFor(snap, stateTime, lastWalkRow_[playerIndex]);
 
     sf::Sprite sprite(assets_.texture(textureFor(playerIndex)));
     sprite.setTextureRect(tileRect(pose.row, pose.frame));
@@ -240,7 +267,22 @@ void Renderer::spawnHitEffect(float x, float y) {
     effects_.push_back(HitEffect{ { x, y }, 0.f });
 }
 
-void Renderer::updateAndDrawHitEffects(sf::RenderWindow& window, float dt) {
+void Renderer::spawnDamageNumber(float x, float y, float damage, bool blocked) {
+    if (!assets_.hasFont()) return;
+
+    DamageNumber number;
+    number.pos = { x, y };
+    number.text = "-" + std::to_string(static_cast<int>(damage + 0.5f));
+    number.color = blocked ? sf::Color(170, 190, 255) : sf::Color(255, 230, 90);
+    damageNumbers_.push_back(number);
+}
+
+void Renderer::updateAndDrawEffects(sf::RenderWindow& window, float dt) {
+    drawHitEffects(window, dt);
+    drawDamageNumbers(window, dt);
+}
+
+void Renderer::drawHitEffects(sf::RenderWindow& window, float dt) {
     if (!assets_.has(Tex::Blood)) return;
 
     const sf::Texture& tex = assets_.texture(Tex::Blood);
@@ -261,6 +303,26 @@ void Renderer::updateAndDrawHitEffects(sf::RenderWindow& window, float dt) {
         sprite.setColor(sf::Color(255, 255, 255,
                                   static_cast<std::uint8_t>(255.f * (1.f - t))));
         window.draw(sprite);
+        ++it;
+    }
+}
+
+void Renderer::drawDamageNumbers(sf::RenderWindow& window, float dt) {
+    if (!assets_.hasFont()) return;
+
+    for (auto it = damageNumbers_.begin(); it != damageNumbers_.end();) {
+        it->age += dt;
+        if (it->age >= DAMAGE_NUMBER_LIFETIME) {
+            it = damageNumbers_.erase(it);
+            continue;
+        }
+
+        float t = it->age / DAMAGE_NUMBER_LIFETIME;
+        sf::Color faded = it->color;
+        faded.a = static_cast<std::uint8_t>(255.f * (1.f - t * t)); // fades late
+
+        drawCenteredText(window, it->text, it->pos.x, it->pos.y - t * DAMAGE_NUMBER_RISE,
+                         18, faded);
         ++it;
     }
 }

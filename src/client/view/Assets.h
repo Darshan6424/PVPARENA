@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-enum class Tex { Character, Skeleton, Blood, Count };
+enum class Tex { Character, Skeleton, Blood, FloorTexture, FloorDecor, TitleBackground, Count };
 enum class Sfx { AttackSwing, ParrySuccess, HitLand, BlockHit, UiClick, MatchEnd, Count };
 enum class Track { Title, Battle, Count };
 

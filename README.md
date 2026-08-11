@@ -466,6 +466,7 @@ Start the server with `./server 9500`, or change the `command:` line in
 | Characters are coloured circles | The sprite images are missing from `assets`. |
 | CMake error about SFML on the server | You forgot `-DBUILD_CLIENT=OFF`. |
 | Client will not compile | You have SFML 2. You need SFML 3. |
+| Windows link errors naming symbols like `__std_search_4` | vcpkg built SFML with a newer Visual Studio than the one linking your project. `.vscode/settings.json` pins both to VS2022; delete the CMake cache and reconfigure. |
 
 Useful commands:
 
@@ -520,6 +521,22 @@ rules, so there is nothing else to change.
 columns and 21 rows. Player 1 uses the character sheet and player 2 uses the
 skeleton sheet, so the two fighters are easy to tell apart. The sheet has no
 guard pose, so blocking and parrying reuse the spellcast and thrust poses.
+
+`floor_texture.png` and `floor_decor.png` are the arena ground: a painted dirt
+layer with a scattered pebble layer over it, scaled down to the arena size.
+They replaced a flat grey rectangle. `title_bg.png` is the backdrop for the
+menu screens, drawn dimmed with a dark shade over it so the buttons and text
+stay readable.
+
+Only the plain dirt layer of that background pack is used for the floor. The
+rest of the pack is painted for a side view, with sky at the top and a horizon
+line. This game looks straight down, so those layers would show sky and a
+castle wall from overhead. The fully composited scene has no such problem on a
+menu screen, because that is a picture rather than a play area, so it is used
+there instead.
+
+If any of these files are missing the game still runs. The floor falls back to
+a flat colour and the menus to a plain background.
 
 `assets/fonts/DejaVuSans-Bold.ttf` is included with the game. Earlier the game
 looked for a font already installed on the computer, and all text disappeared

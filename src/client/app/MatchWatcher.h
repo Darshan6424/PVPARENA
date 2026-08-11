@@ -12,6 +12,7 @@ struct PlayerEvents {
     bool gotParried = false;      // was mid-swing and got staggered by a parry
     bool tookCleanHit = false;
     bool tookBlockedHit = false;
+    float damage = 0.f;       // how much health this hit actually removed
     float hitX = 0.f;
     float hitY = 0.f;
 };
