@@ -21,6 +21,7 @@
     #include <sys/socket.h>
     #include <netinet/in.h>
     #include <arpa/inet.h>
+    #include <netdb.h>
     #include <unistd.h>
     #include <fcntl.h>
     #include <errno.h>
@@ -133,6 +134,41 @@ int UdpSocket::receive(void* buffer, size_t bufferSize, Endpoint& from) {
     from.port = ntohs(addr.sin_port);
 
     return received;
+}
+
+std::string UdpSocket::resolveHost(const std::string& host) {
+    if (host.empty()) return {};
+
+    // Already numeric? Nothing to look up, and skipping getaddrinfo keeps the
+    // common "typed an IP" case off the network entirely.
+    in_addr numeric{};
+    if (inet_pton(AF_INET, host.c_str(), &numeric) == 1) return host;
+
+#ifdef _WIN32
+    WSADATA wsaData;
+    bool didInit = (WSAStartup(MAKEWORD(2, 2), &wsaData) == 0);
+#endif
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;          // everything else here is IPv4 only
+    hints.ai_socktype = SOCK_DGRAM;
+
+    std::string result;
+    addrinfo* found = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &found) == 0 && found) {
+        auto* addr = reinterpret_cast<sockaddr_in*>(found->ai_addr);
+        char buf[INET_ADDRSTRLEN] = {};
+        if (inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
+            result = buf;
+        }
+    }
+    if (found) freeaddrinfo(found);
+
+#ifdef _WIN32
+    if (didInit) WSACleanup();
+#endif
+
+    return result;
 }
 
 std::string UdpSocket::getLocalIPAddress() {

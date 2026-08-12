@@ -1,7 +1,8 @@
 #pragma once
 #include "client/screens/Screen.h"
 
-// Types in the address of a server to join. Accepts "IP" or "IP:port".
+// Types in the address of a server to join. Accepts an IP or a domain name,
+// either on its own or with ":port" appended.
 class AddressScreen : public Screen {
 public:
     explicit AddressScreen(Game& game);

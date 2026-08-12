@@ -41,8 +41,11 @@ void AddressScreen::typeCharacter(char32_t c) {
         game_.startJoining();
     } else if (c < 128) {
         char ch = static_cast<char>(c);
-        bool allowed = (ch >= '0' && ch <= '9') || ch == '.' || ch == ':';
-        if (allowed && text.size() < 45) text += ch;
+        bool allowed = (ch >= '0' && ch <= '9') ||
+                       (ch >= 'a' && ch <= 'z') ||
+                       (ch >= 'A' && ch <= 'Z') ||
+                       ch == '.' || ch == ':' || ch == '-';
+        if (allowed && text.size() < 60) text += ch;
     }
 }
 
@@ -55,7 +58,7 @@ void AddressScreen::draw(float) {
                        sf::Color::White);
     r.drawCenteredText(w, game_.addressText(), ARENA_WIDTH / 2.f, 240.f, 28,
                        sf::Color(120, 220, 255));
-    r.drawCenteredText(w, "IP, or IP:port for a non-default port",
+    r.drawCenteredText(w, "IP or domain name, with :port only if it isn't the default",
                        ARENA_WIDTH / 2.f, 270.f, 12, sf::Color(140, 140, 140));
     r.drawButton(w, connectBtn_, "Connect", game_.hovering(connectBtn_));
     r.drawButton(w, backBtn_, "Back", game_.hovering(backBtn_));

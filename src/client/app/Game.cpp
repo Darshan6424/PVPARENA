@@ -15,19 +15,20 @@ constexpr float SHAKE_DURATION = 0.18f;
 constexpr float SHAKE_MAGNITUDE = 6.f;
 
 struct Address {
-    std::string ip;
+    std::string host;
     uint16_t port = DEFAULT_SERVER_PORT;
 };
 
-// Accepts "1.2.3.4" or "1.2.3.4:9500".
+// Accepts "1.2.3.4" or "arena.example.com", with an optional ":9500" on the
+// end. Without one the default port is filled in.
 Address parseAddress(const std::string& text) {
     Address addr;
     std::size_t colon = text.find(':');
     if (colon == std::string::npos) {
-        addr.ip = text;
+        addr.host = text;
         return addr;
     }
-    addr.ip = text.substr(0, colon);
+    addr.host = text.substr(0, colon);
     int port = std::atoi(text.c_str() + colon + 1);
     if (port > 0 && port <= 65535) addr.port = static_cast<uint16_t>(port);
     return addr;
@@ -119,22 +120,30 @@ void Game::startHosting(bool localCoop) {
 
 void Game::startJoining() {
     Address addr = parseAddress(addressText_);
-    if (addr.ip.empty()) {
+    if (addr.host.empty()) {
         status_ = "Enter an address first";
+        return;
+    }
+
+    // Packets go out to a numeric address, and replies are matched against the
+    // one we stored, so a typed-in name has to be turned into one up front.
+    std::string ip = UdpSocket::resolveHost(addr.host);
+    if (ip.empty()) {
+        status_ = "Could not find " + addr.host;
         return;
     }
 
     localCoop_ = false;
     hostAddress_.clear();
 
-    if (!client_.beginConnect(addr.ip, addr.port)) {
+    if (!client_.beginConnect(ip, addr.port)) {
         status_ = "Could not open a socket";
         showTitle();
         return;
     }
 
     resetMatchState();
-    status_ = "Connecting to " + addr.ip + ":" + std::to_string(addr.port) + " ...";
+    status_ = "Connecting to " + addr.host + ":" + std::to_string(addr.port) + " ...";
     changeScreen(std::make_unique<ConnectingScreen>(*this, false));
 }
 

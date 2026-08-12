@@ -54,6 +54,11 @@ public:
     // doesn't have to go dig it out of ipconfig. "127.0.0.1" if we can't tell.
     static std::string getLocalIPAddress();
 
+    // Turns a name like "arena.example.com" into the dotted-quad send() needs.
+    // A numeric address comes back unchanged. Empty string if the name doesn't
+    // resolve. Blocks while the lookup runs, so don't call it every frame.
+    static std::string resolveHost(const std::string& host);
+
 private:
     bool openSocket();
 

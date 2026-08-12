@@ -517,7 +517,8 @@ clicks **Join** and types that address.
 1. The host needs their **public IP**. Search the internet for "what is my ip".
 2. The host must set up **port forwarding** on their router: forward UDP port
    9422 to the LAN IP of the computer running the server.
-3. The other player clicks **Join** and types the public IP.
+3. The other player clicks **Join** and types the public IP. A domain name
+   pointed at that IP works too, if you have one.
 
 If the host uses a rented server instead of their home computer, port
 forwarding is not needed. Only the firewall rules from the checklist matter.
@@ -530,7 +531,9 @@ reason. Use a rented server instead.
 
 ### Using a different port
 
-The client accepts `IP:port` as well as `IP`. For example `203.0.113.9:9500`.
+The client accepts a port on the end of the address, after a colon. For example
+`203.0.113.9:9500` or `arena.example.com:9500`. Leave it off and the client
+uses the default, 9422.
 Start the server with `./server 9500`, or change the `command:` line in
 `docker-compose.yml`.
 
