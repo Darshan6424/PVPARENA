@@ -22,7 +22,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_CLIENT=OFF
       - run: cmake --build build -j"$(nproc)"
       - run: ctest --test-dir build --output-on-failure
@@ -32,7 +32,7 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build
         run: |
@@ -48,7 +48,7 @@ jobs:
           cp deploy/pvparena-server.service deploy/README.md out/ 2>/dev/null || true
           tar -C out -czf pvparena-server-linux-x86_64.tar.gz .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-server-linux
           path: pvparena-server-linux-x86_64.tar.gz
@@ -69,7 +69,7 @@ jobs:
             os: windows-latest
             triplet: x64-windows-static
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install SFML's Linux dependencies
         if: runner.os == 'Linux'
@@ -96,7 +96,7 @@ jobs:
           fi
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/vcpkg-cache
           key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
@@ -130,7 +130,7 @@ jobs:
           Copy-Item README.md dist/ -ErrorAction SilentlyContinue
           Compress-Archive -Path dist/* -DestinationPath pvparena-${{ matrix.name }}.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-client-${{ matrix.name }}
           path: |
@@ -146,7 +146,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Work out the tag
         id: meta
@@ -173,9 +173,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
